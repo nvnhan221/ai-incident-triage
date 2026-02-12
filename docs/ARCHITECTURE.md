@@ -56,6 +56,41 @@ User  ──▶  UI (FE)  ──▶  Backend (BE)  ──┬──▶  Vector DB
 
 ## 3. Sơ đồ tổng thể
 
+```mermaid
+flowchart TB
+    subgraph sources["Các service hiện có (ghi log vào Kafka)"]
+        payment["payment-service"]
+        order["order-service"]
+        merchant["merchant-service"]
+        other["..."]
+    end
+
+    Kafka["Kafka\n(log topics)"]
+    sources -->|"requestId, transactionId, responseCode, data"| Kafka
+
+    subgraph consumer["Service 1: Log Consumer"]
+        c1["Consume messages từ Kafka"]
+        c2["Xử lý / chuẩn hóa log"]
+        c3["Ingest vào Vector DB"]
+        c1 --> c2 --> c3
+    end
+    Kafka --> consumer
+
+    VDB[("Vector DB\n(logs + vector)")]
+    consumer --> VDB
+
+    User["User"]
+    subgraph app["Service 2: Triage App (FE + BE)"]
+        FE["Frontend (UI)\nInput form · Hiển thị kết quả"]
+        BE["Backend (API)\nNhận input · Query Vector DB · Gọi AI/LLM"]
+        FE <--> BE
+    end
+    User --> FE
+
+    BE -->|"search"| VDB
+    BE --> LLM["AI/LLM\n(triage)"]
+```
+
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
 │  Các service hiện có (ghi log vào Kafka)                                  │
