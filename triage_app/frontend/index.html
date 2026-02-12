@@ -1,0 +1,239 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>AI Incident Triage</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --surface: #1a2332;
+      --border: #2d3a4f;
+      --text: #e6edf3;
+      --muted: #8b949e;
+      --accent: #58a6ff;
+      --success: #3fb950;
+      --warning: #d29922;
+      --error: #f85149;
+    }
+    * { box-sizing: border-box; }
+    body {
+      font-family: 'Segoe UI', system-ui, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      margin: 0;
+      padding: 24px;
+      min-height: 100vh;
+    }
+    .container { max-width: 900px; margin: 0 auto; }
+    h1 { font-size: 1.5rem; margin-bottom: 8px; }
+    .sub { color: var(--muted); font-size: 0.9rem; margin-bottom: 24px; }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 20px;
+      margin-bottom: 20px;
+    }
+    label { display: block; margin-bottom: 6px; color: var(--muted); font-size: 0.85rem; }
+    input, textarea {
+      width: 100%;
+      padding: 10px 12px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--bg);
+      color: var(--text);
+      font-size: 0.95rem;
+      margin-bottom: 12px;
+    }
+    textarea { min-height: 80px; resize: vertical; }
+    .row { display: flex; gap: 16px; flex-wrap: wrap; }
+    .row > * { flex: 1 1 200px; }
+    button {
+      background: var(--accent);
+      color: #fff;
+      border: none;
+      padding: 12px 24px;
+      border-radius: 8px;
+      font-size: 1rem;
+      cursor: pointer;
+      margin-right: 8px;
+    }
+    button:hover { opacity: 0.9; }
+    button.secondary { background: var(--border); }
+    .result-section { margin-top: 24px; }
+    .result-section h3 { font-size: 1rem; margin-bottom: 8px; color: var(--muted); }
+    .logs-list { margin: 12px 0; }
+    .log-item {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 8px;
+      font-size: 0.85rem;
+    }
+    .log-item .meta { color: var(--accent); margin-bottom: 4px; }
+    .log-item .text { color: var(--muted); word-break: break-all; }
+    .triage-box {
+      border-left: 4px solid var(--accent);
+      padding: 16px;
+      background: var(--bg);
+      border-radius: 0 8px 8px 0;
+    }
+    .triage-box .issue-type { color: var(--success); font-weight: 600; }
+    .triage-box .confidence { color: var(--warning); }
+    .triage-box ul { margin: 8px 0; padding-left: 20px; }
+    .triage-box li { margin: 4px 0; }
+    .error-msg { color: var(--error); padding: 12px; background: rgba(248,81,73,0.1); border-radius: 8px; margin-top: 12px; }
+    pre { overflow-x: auto; font-size: 0.8rem; margin: 0; }
+  </style>
+</head>
+<body>
+  <div class="container">
+    <h1>AI Incident Triage</h1>
+    <p class="sub">Nhập mã đơn / merchant / request để tìm log và gợi ý xử lý</p>
+
+    <div class="card">
+      <label>Mã đơn hàng (orderNo)</label>
+      <input type="text" id="orderNo" placeholder="vd: Y20KI9R6" />
+      <div class="row">
+        <div>
+          <label>Merchant ID</label>
+          <input type="text" id="merchantId" placeholder="vd: 9800000367" />
+        </div>
+        <div>
+          <label>Request ID</label>
+          <input type="text" id="requestId" placeholder="(tùy chọn)" />
+        </div>
+      </div>
+      <label>Log snippet / mô tả (tùy chọn)</label>
+      <textarea id="logSnippet" placeholder="Dán đoạn log hoặc mô tả sự cố..."></textarea>
+      <label>Error message (tùy chọn)</label>
+      <input type="text" id="errorMessage" placeholder="Thông báo lỗi nếu có" />
+      <div style="margin-top: 16px;">
+        <button type="button" id="btnSearch">Tìm logs</button>
+        <button type="button" id="btnTriage" class="secondary">Triage (AI)</button>
+      </div>
+    </div>
+
+    <div id="output" class="card result-section" style="display: none;">
+      <h3 id="outputTitle">Kết quả</h3>
+      <div id="outputBody"></div>
+    </div>
+  </div>
+
+  <script>
+    const API = window.location.origin;
+    const orderNo = () => document.getElementById('orderNo').value.trim();
+    const merchantId = () => document.getElementById('merchantId').value.trim();
+    const requestId = () => document.getElementById('requestId').value.trim();
+    const logSnippet = () => document.getElementById('logSnippet').value.trim();
+    const errorMessage = () => document.getElementById('errorMessage').value.trim();
+
+    function body() {
+      const b = {};
+      if (orderNo()) b.order_no = orderNo();
+      if (merchantId()) b.merchant_id = merchantId();
+      if (requestId()) b.request_id = requestId();
+      if (logSnippet()) b.log_snippet = logSnippet();
+      if (errorMessage()) b.error_message = errorMessage();
+      return b;
+    }
+
+    function showOutput(title, html) {
+      const el = document.getElementById('output');
+      document.getElementById('outputTitle').textContent = title;
+      document.getElementById('outputBody').innerHTML = html;
+      el.style.display = 'block';
+    }
+
+    function showError(msg) {
+      showOutput('Lỗi', '<div class="error-msg">' + escapeHtml(msg) + '</div>');
+    }
+
+    function escapeHtml(s) {
+      const div = document.createElement('div');
+      div.textContent = s;
+      return div.innerHTML;
+    }
+
+    async function doSearch() {
+      if (!orderNo() && !merchantId() && !requestId()) {
+        showError('Nhập ít nhất một trong: Mã đơn hàng, Merchant ID, Request ID');
+        return;
+      }
+      try {
+        const res = await fetch(API + '/search', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body()),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || res.statusText);
+        let html = '<p>Tìm thấy <strong>' + data.total + '</strong> log(s).</p>';
+        if (data.hits && data.hits.length) {
+          html += '<div class="logs-list">';
+          data.hits.forEach(h => {
+            html += '<div class="log-item">';
+            html += '<div class="meta">' + escapeHtml([h.module, h.operation, h.resp_code, h.status].filter(Boolean).join(' · ')) + '</div>';
+            html += '<div class="text">' + escapeHtml((h.text || '').slice(0, 300)) + '</div>';
+            if (h.payload) html += '<pre>' + escapeHtml(h.payload.slice(0, 500)) + '</pre>';
+            html += '</div>';
+          });
+          html += '</div>';
+        }
+        showOutput('Tìm kiếm logs', html);
+      } catch (e) {
+        showError(e.message);
+      }
+    }
+
+    async function doTriage() {
+      if (!orderNo() && !merchantId() && !requestId()) {
+        showError('Nhập ít nhất một trong: Mã đơn hàng, Merchant ID, Request ID');
+        return;
+      }
+      try {
+        const res = await fetch(API + '/triage', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(body()),
+        });
+        const data = await res.json();
+        if (!res.ok) throw new Error(data.detail || res.statusText);
+        let html = '<p>Đã tìm thấy <strong>' + data.logs_found + '</strong> log(s).</p>';
+        if (data.triage) {
+          const t = data.triage;
+          html += '<div class="triage-box">';
+          html += '<p><span class="issue-type">' + escapeHtml(t.issue_type || 'N/A') + '</span> <span class="confidence">(' + (t.confidence ? Math.round(t.confidence * 100) + '%' : '-') + ')</span></p>';
+          html += '<p><strong>Root cause:</strong> ' + escapeHtml(t.root_cause) + '</p>';
+          if (t.evidence && t.evidence.length) {
+            html += '<p><strong>Evidence:</strong><ul>';
+            t.evidence.forEach(ev => { html += '<li>' + escapeHtml(ev) + '</li>'; });
+            html += '</ul></p>';
+          }
+          if (t.suggested_actions && t.suggested_actions.length) {
+            html += '<p><strong>Suggested actions:</strong><ul>';
+            t.suggested_actions.forEach(a => { html += '<li>' + escapeHtml(a) + '</li>'; });
+            html += '</ul></p>';
+          }
+          html += '</div>';
+        }
+        if (data.logs_preview && data.logs_preview.length) {
+          html += '<h3>Logs preview</h3><div class="logs-list">';
+          data.logs_preview.slice(0, 5).forEach(h => {
+            html += '<div class="log-item"><div class="meta">' + escapeHtml([h.module, h.operation].filter(Boolean).join(' · ')) + '</div><div class="text">' + escapeHtml((h.text || '').slice(0, 200)) + '</div></div>';
+          });
+          html += '</div>';
+        }
+        showOutput('Kết quả Triage', html);
+      } catch (e) {
+        showError(e.message);
+      }
+    }
+
+    document.getElementById('btnSearch').addEventListener('click', doSearch);
+    document.getElementById('btnTriage').addEventListener('click', doTriage);
+  </script>
+</body>
+</html>
