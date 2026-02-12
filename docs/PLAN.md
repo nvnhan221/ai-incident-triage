@@ -19,14 +19,14 @@
 | Task queue | **Celery** hoặc **RQ** (Redis) | Triage chạy bất đồng bộ, không block request |
 | Cache / Queue | **Redis** | Cache log/context, queue jobs, rate limit |
 
-### 2.2 Thu thập log & dữ liệu
+### 2.2 Thu thập log & lưu trữ (theo kiến trúc Kafka → Vector DB)
 
 | Thành phần | Công nghệ | Ghi chú |
 |------------|-----------|--------|
-| Log aggregation | **Elasticsearch** + **Kibana** (hoặc Grafana Loki) | Đã có sẵn ở Smartpay thì tận dụng; query theo `transactionId`, `merchantId`, time range |
-| Log fetch client | **elasticsearch-py** / **opensearch-py** | Nếu dùng OpenSearch tương thích ES |
-| DB lưu incident history | **PostgreSQL** | Lưu incident đã xử lý để so sánh và train pattern |
-| Message queue (nếu cần) | **Kafka** (consumer) | Đọc event liên quan transaction/merchant (optional) |
+| Nguồn log | **Kafka** | Các service (payment, order, merchant, …) ghi log (requestId, transactionId, responseCode, data) vào Kafka |
+| Log consumer | **confluent-kafka** / **aiokafka** (Python) | Một service riêng: consume → xử lý → ingest Vector DB |
+| Lưu log + search | **Vector DB** (Qdrant / Weaviate / Chroma / pgvector) | Lưu log đã chuẩn hóa + embedding; BE query tại đây khi triage |
+| (Tùy chọn) Incident history | **PostgreSQL** hoặc cùng Vector DB | Lưu incident đã xử lý để so sánh pattern (phase sau) |
 
 ### 2.3 AI / LLM
 
@@ -50,101 +50,92 @@
 
 ## 3. Kiến trúc hệ thống (high-level)
 
+**Hai thành phần chính:** (1) Log Consumer — Kafka → Vector DB; (2) Triage App — FE + BE, query Vector DB + AI. Chi tiết: [docs/ARCHITECTURE.md](ARCHITECTURE.md).
+
 ```
-┌─────────────────┐     ┌──────────────────┐     ┌─────────────────────┐
-│  Support UI /   │────▶│   Triage API     │────▶│  Log Aggregator     │
-│  Slack / API    │     │   (FastAPI)      │     │  (ES/Loki)          │
-└─────────────────┘     └────────┬─────────┘     └─────────────────────┘
-                                 │
-                                 ▼
-                        ┌──────────────────┐
-                        │  Triage Worker   │◀──── Redis (queue)
-                        │  (Celery/RQ)     │
-                        └────────┬─────────┘
-                                 │
-          ┌──────────────────────┼──────────────────────┐
-          ▼                      ▼                      ▼
-┌─────────────────┐   ┌─────────────────┐   ┌─────────────────┐
-│  Incident DB     │   │  Vector Store    │   │  LLM Service     │
-│  (PostgreSQL)    │   │  (pgvector)      │   │  (OpenAI/Claude) │
-└─────────────────┘   └─────────────────┘   └─────────────────┘
+  payment / order / merchant ... (ghi log)
+                    │
+                    ▼
+              ┌──────────┐      ┌─────────────────┐      ┌─────────────┐
+              │  Kafka   │─────▶│ Log Consumer    │─────▶│  Vector DB  │
+              │ (topics) │      │ (xử lý + ingest)│      │ (logs+vec)  │
+              └──────────┘      └─────────────────┘      └──────┬──────┘
+                                                                 │
+  User ──▶ ┌─────────────────────────────────────────────────────┘
+           │
+           ▼
+  ┌────────────────────────────────────────────────────────────────┐
+  │  Triage App (1 service: FE + BE)                                │
+  │  ┌─────────────┐    ┌─────────────────────────────────────────┐│
+  │  │  Frontend   │───▶│  Backend (API) ──▶ Vector DB (search)     ││
+  │  │  (input +   │    │                ──▶ LLM (triage)          ││
+  │  │   kết quả)  │◀───│  response                                 ││
+  │  └─────────────┘    └─────────────────────────────────────────┘│
+  └────────────────────────────────────────────────────────────────┘
 ```
 
 ---
 
 ## 4. Các bước thực hiện (phases)
 
-### Phase 1: Nền tảng (Foundation) — 1–2 tuần
+### Phase 1: Log Consumer (Kafka → Vector DB) — 1–2 tuần
 
 | # | Công việc | Deliverable |
 |---|-----------|-------------|
-| 1.1 | Khởi tạo repo: Python, FastAPI, Docker, cấu trúc thư mục | `README`, `docker-compose.yml`, `requirements.txt` |
-| 1.2 | Định nghĩa API: POST `/triage` (transactionId, orderId, merchantId, log_snippet?, error_message?) | OpenAPI spec, Pydantic models |
-| 1.3 | Response schema chuẩn: issue_type, confidence, root_cause, evidence[], suggested_actions[] | Schema JSON/YAML, doc |
-| 1.4 | Cấu hình Redis + Celery (hoặc RQ): job “triage” async | Worker chạy được, test enqueue job |
+| 1.1 | Service consumer: subscribe Kafka topic(s) log từ payment/order/merchant | Repo hoặc module `log-consumer`, Docker |
+| 1.2 | Parse message: requestId, transactionId, responseCode, service name, data; chuẩn hóa schema | Module parse + schema (Pydantic) |
+| 1.3 | Chọn và kết nối Vector DB (Qdrant/Chroma/pgvector); thiết kế collection/index (metadata + vector) | Vector DB client, collection schema |
+| 1.4 | Ingest: mỗi message (hoặc batch) → transform → insert Vector DB; xử lý embedding nếu dùng semantic search | Pipeline ingest chạy ổn định |
 
-**Công nghệ Phase 1:** Python, FastAPI, Redis, Celery/RQ, Docker.
+**Công nghệ Phase 1:** Python (hoặc Node), Kafka client, Vector DB (Qdrant/Chroma/Weaviate/pgvector), Docker.
 
 ---
 
-### Phase 2: Thu thập dữ liệu (Data ingestion) — 1–2 tuần
+### Phase 2: Triage App — Backend + Vector DB + AI — 1,5–2 tuần
 
 | # | Công việc | Deliverable |
 |---|-----------|-------------|
-| 2.1 | Client kết nối Elasticsearch/OpenSearch (hoặc Loki): query theo transactionId, merchantId, time range | Module `log_fetcher` |
-| 2.2 | Mapping service → index/source (payment-service, order-service, callback-service, …) | Config (YAML/ENV) |
-| 2.3 | Aggregate log từ nhiều service thành một “context” cho LLM (có giới hạn token) | Hàm `build_triage_context()` |
-| 2.4 | (Optional) Kafka consumer đọc event liên quan transaction/merchant | Module optional, config |
-
-**Công nghệ Phase 2:** elasticsearch-py, cấu hình ES/Loki, (Kafka client nếu cần).
+| 2.1 | Khởi tạo Triage App: FastAPI, cấu trúc FE (React/Vue hoặc đơn giản HTML) + BE | Repo/app, Docker Compose (app + Vector DB) |
+| 2.2 | API: POST `/search` hoặc `/triage` — input transactionId, merchantId, (optional) log snippet, error message | OpenAPI, Pydantic request/response |
+| 2.3 | Query Vector DB theo transactionId/merchantId/requestId (filter metadata); (optional) semantic search | Module `vector_search`, trả danh sách log liên quan |
+| 2.4 | Gom context (log tìm được + input) → gọi LLM; parse output (issue_type, confidence, root_cause, evidence, suggested_actions) | Module `llm_triage`, prompt template |
+| 2.5 | Response schema chuẩn; nối search + AI → endpoint `/triage` hoàn chỉnh | E2E: input → Vector DB → AI → response |
 
 ---
 
-### Phase 3: AI Triage core — 2–3 tuần
-
-| # | Công việc | Deliverable |
-|---|-----------|-------------|
-| 3.1 | Tích hợp LLM (OpenAI/Claude): prompt nhận context (log + input), output structured (JSON/YAML) | Module `llm_triage`, prompt template |
-| 3.2 | Parse và validate output LLM → đúng schema (issue_type, confidence, root_cause, evidence, suggested_actions) | Pydantic parser, retry khi parse lỗi |
-| 3.3 | Thiết kế prompt: vài shot examples (Callback Failure, Payment Timeout, …), format rõ ràng | File `prompts/triage.md` hoặc trong code |
-| 3.4 | Nối Phase 2 + Phase 3: worker gọi log_fetcher → build context → gọi LLM → trả kết quả | E2E flow trong worker |
-
-**Công nghệ Phase 3:** OpenAI SDK / Anthropic SDK, Pydantic, Jinja2 hoặc f-string cho prompt.
+**Công nghệ Phase 2:** FastAPI, Vector DB client, OpenAI/Claude SDK, Pydantic.
 
 ---
 
-### Phase 4: Incident history & similarity — 1–2 tuần
+### Phase 3: Triage App — Frontend & hoàn thiện — 1 tuần
 
 | # | Công việc | Deliverable |
 |---|-----------|-------------|
-| 4.1 | Schema DB: bảng incident_history (transaction_id, merchant_id, root_cause, resolution, created_at, …) | Migration PostgreSQL |
-| 4.2 | Lưu mỗi lần triage (và khi support confirm) vào incident_history | API/internal call sau khi triage |
-| 4.3 | Embedding root_cause + log snippet (hoặc summary); lưu vào pgvector / Qdrant | Script embedding + index |
-| 4.4 | Trước khi gọi LLM: tìm top-k incident tương tự → đưa vào prompt “similar past incidents” | Module `similar_incidents`, cập nhật prompt |
+| 3.1 | UI: form nhập transactionId, merchantId, (optional) log snippet, error message | Trang input (React/Vue/HTML) |
+| 3.2 | Gọi API BE (search/triage), hiển thị kết quả: log tìm được + AI (issue type, confidence, root cause, evidence, suggested actions) | Trang kết quả, có thể YAML/JSON format |
+| 3.3 | (Optional) Trang “chỉ search” Vector DB không qua AI (xem raw logs) | Endpoint + UI |
 
-**Công nghệ Phase 4:** PostgreSQL, pgvector (hoặc Qdrant), sentence-transformers hoặc OpenAI Embeddings.
+**Công nghệ Phase 3:** React/Vue hoặc HTML+JS; gọi BE API.
 
 ---
 
-### Phase 5: Production-ready & tích hợp — 1–2 tuần
+### Phase 4: Production-ready (optional) — 1 tuần
 
 | # | Công việc | Deliverable |
 |---|-----------|-------------|
-| 5.1 | Auth & rate limit cho API (API key hoặc JWT) | Middleware FastAPI |
-| 5.2 | Retry, timeout, circuit breaker cho LLM và ES | Cấu hình + logging |
-| 5.3 | Webhook hoặc callback URL: khi triage xong gửi kết quả (Slack, webhook custom) | Optional field trong request |
-| 5.4 | Dashboard đơn giản: form nhập transactionId/merchantId, hiển thị kết quả triage (có thể dùng Streamlit hoặc React sau) | MVP UI |
-| 5.5 | Document runbook: deploy, env vars, cách test với dữ liệu mẫu | `docs/RUNBOOK.md` |
+| 4.1 | Auth & rate limit cho API (API key hoặc JWT) | Middleware FastAPI |
+| 4.2 | Retry, timeout cho LLM và Vector DB; logging chuẩn | Cấu hình + observability |
+| 4.3 | Runbook: deploy Consumer + Triage App, env vars, Kafka topics, Vector DB | `docs/RUNBOOK.md` |
 
-**Công nghệ Phase 5:** FastAPI middleware, Slack SDK (optional), Streamlit hoặc React tùy chọn.
+**Công nghệ Phase 4:** FastAPI middleware, Docker Compose / K8s.
 
 ---
 
 ## 5. Thứ tự ưu tiên công nghệ
 
-1. **Bắt buộc sớm:** FastAPI, Redis, Celery/RQ, LLM (OpenAI hoặc Claude), Elasticsearch client.
-2. **Cần cho “so với lịch sử incident”:** PostgreSQL + pgvector (hoặc Qdrant), embedding model.
-3. **Tùy hạ tầng hiện tại:** Kafka consumer chỉ thêm nếu đã dùng Kafka và cần real-time event.
+1. **Bắt buộc:** Kafka consumer, Vector DB (Qdrant/Chroma/Weaviate/pgvector), FastAPI, LLM (OpenAI/Claude).
+2. **Triage App:** Một service gồm FE + BE; BE query Vector DB + gọi AI.
+3. **Không dùng:** Fetch log từ Elasticsearch/Loki — log đã được ingest từ Kafka vào Vector DB.
 
 ---
 
@@ -153,29 +144,30 @@
 | Rủi ro | Giảm thiểu |
 |--------|------------|
 | LLM trả output không đúng format | Pydantic parse + retry với prompt “chỉ trả JSON”; có fallback schema |
-| Log quá lớn, vượt context LLM | Giới hạn token per service, tóm tắt hoặc chỉ lấy dòng lỗi + vài dòng trước/sau |
-| ES/Loki chậm hoặc down | Timeout rõ ràng, cache short TTL cho cùng transactionId, queue retry |
-| Chi phí LLM cao | Dùng model nhỏ hơn cho bước “phân loại”; chỉ dùng GPT-4/Claude cho bước root cause + action |
+| Log quá lớn, vượt context LLM | Giới hạn số bản ghi/ token từ Vector DB; tóm tắt hoặc chỉ lấy bản ghi lỗi + metadata |
+| Kafka lag / consumer chậm | Scale consumer, batch ingest; monitor offset lag |
+| Vector DB chậm hoặc down | Timeout, retry; index metadata (transactionId, merchantId) để filter nhanh |
+| Chi phí LLM cao | Dùng model nhỏ cho bước phân loại; GPT-4/Claude chỉ cho root cause + actions |
 
 ---
 
-## 7. Timeline gợi ý
+## 7. Timeline gợi ý (theo kiến trúc Kafka + Vector DB)
 
-| Phase | Thời gian | Tổng cộng |
-|-------|-----------|-----------|
-| Phase 1 – Foundation | 1–2 tuần | 2 tuần |
-| Phase 2 – Data ingestion | 1–2 tuần | 4 tuần |
-| Phase 3 – AI Triage core | 2–3 tuần | 7 tuần |
-| Phase 4 – Incident history | 1–2 tuần | 9 tuần |
-| Phase 5 – Production & tích hợp | 1–2 tuần | 11 tuần |
+| Phase | Thời gian | Nội dung |
+|-------|-----------|----------|
+| Phase 1 – Log Consumer | 1–2 tuần | Kafka → xử lý → ingest Vector DB |
+| Phase 2 – Triage BE + Vector + AI | 1,5–2 tuần | API, query Vector DB, LLM triage |
+| Phase 3 – Triage FE | 1 tuần | UI input + hiển thị kết quả |
+| Phase 4 – Production (optional) | 1 tuần | Auth, runbook, observability |
 
-**MVP (chỉ Phase 1 + 2 + 3):** khoảng 4–7 tuần, đã có flow: nhận input → fetch log → LLM triage → trả kết quả.
+**MVP (Phase 1 + 2 + 3):** khoảng 3,5–5 tuần — Consumer ingest log từ Kafka vào Vector DB; user dùng UI → BE query Vector DB + AI → trả kết quả.
 
 ---
 
 ## 8. Tài liệu tham khảo trong repo
 
+- `docs/ARCHITECTURE.md` — Kiến trúc chi tiết: Kafka → Consumer → Vector DB; Triage App (FE+BE)
 - `docs/PLAN.md` — Kế hoạch này
 - `docs/API.md` — Spec API (sẽ tạo từ OpenAPI)
-- `docs/RUNBOOK.md` — Deploy & vận hành (sau Phase 5)
-- `docs/PROMPTS.md` — Prompt design và vài shot examples (sau Phase 3)
+- `docs/RUNBOOK.md` — Deploy & vận hành (sau Phase 4)
+- `docs/PROMPTS.md` — Prompt design và vài shot examples (sau Phase 2)
