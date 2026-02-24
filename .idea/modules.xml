@@ -2,7 +2,9 @@
 <project version="4">
   <component name="ProjectModuleManager">
     <modules>
-      <module fileurl="file://$PROJECT_DIR$/.idea/ai-incident-triage.iml" filepath="$PROJECT_DIR$/.idea/ai-incident-triage.iml" />
+      <module fileurl="file://$PROJECT_DIR$/triage_app/backend/backend.iml" filepath="$PROJECT_DIR$/triage_app/backend/backend.iml" />
+      <module fileurl="file://$PROJECT_DIR$/triage_app/frontend/frontend.iml" filepath="$PROJECT_DIR$/triage_app/frontend/frontend.iml" />
+      <module fileurl="file://$PROJECT_DIR$/log_consumer/log_consumer.iml" filepath="$PROJECT_DIR$/log_consumer/log_consumer.iml" />
     </modules>
   </component>
 </project>

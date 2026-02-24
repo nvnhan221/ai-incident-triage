@@ -1,21 +1,19 @@
+"""Cấu hình từ .env (và biến môi trường nếu có)."""
 from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    kafka_enabled: bool = False
-    kafka_bootstrap_servers: str = "localhost:9092"
-    kafka_topic_logs: str = "payment-logs"
-    kafka_group_id: str = "log-consumer-vector"
-    ingest_batch_size: int = 10
     qdrant_host: str = "localhost"
     qdrant_port: int = 6333
     qdrant_collection: str = "payment_logs"
-    http_port: int = 8001
+    triage_port: int = 8000
+    openai_api_key: str | None = None
+    openai_model: str = "gpt-4o-mini"
 
     class Config:
-        env_prefix = ""
         env_file = ".env"
         env_file_encoding = "utf-8"
+        extra = "ignore"
 
 
 settings = Settings()

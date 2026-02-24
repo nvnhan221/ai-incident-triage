@@ -5,6 +5,17 @@ Hệ thống gồm 2 phần:
 1. **Log Consumer** — Nhận log (Kafka hoặc HTTP), chuẩn hóa, ingest vào Vector DB (Qdrant).
 2. **Triage App** — FE + BE: form nhập mã đơn/merchant → query Vector DB + gọi AI → hiển thị kết quả.
 
+## Cấu hình (.env)
+
+Cả hai service đọc cấu hình từ file **.env** trong thư mục tương ứng (không dùng biến môi trường tay). Copy từ `.env.example` rồi chỉnh nếu cần:
+
+```bash
+cp triage_app/backend/.env.example triage_app/backend/.env
+cp log_consumer/.env.example log_consumer/.env
+```
+
+Trong `.env` của Triage Backend có thể thêm `OPENAI_API_KEY=sk-...` để bật AI triage. File `.env` không commit lên git.
+
 ## Yêu cầu
 
 - Python 3.11+
@@ -53,7 +64,7 @@ Sau đó mở http://localhost:8000/app/ (hoặc http://localhost:8000/app/index
    cd triage_app/backend && pip install -r requirements.txt && python main.py
    ```
    Mặc định http://localhost:8000. Mở http://localhost:8000/app/ để dùng form (cần copy thư mục `frontend` vào `triage_app/backend/../frontend`).
-4. Cấu hình AI: đặt biến môi trường `OPENAI_API_KEY` (và tùy chọn `OPENAI_MODEL`) để dùng Triage (AI). Nếu không có, API vẫn trả về danh sách log và tóm tắt đơn giản.
+4. Cấu hình: copy `.env.example` thành `.env` trong từng service và chỉnh nếu cần. Ví dụ Triage Backend: `cp triage_app/backend/.env.example triage_app/backend/.env`. Thêm `OPENAI_API_KEY` vào `.env` để bật AI triage.
 
 ## Cấu trúc repo
 

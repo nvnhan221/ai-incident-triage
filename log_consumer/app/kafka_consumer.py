@@ -3,10 +3,10 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 
 from aiokafka import AIOKafkaConsumer
 
+from .config import settings
 from .normalizer import normalize_log
 from .schemas import RawLog
 from .vector_store import get_client, upsert_logs
@@ -15,10 +15,10 @@ logger = logging.getLogger(__name__)
 
 
 async def consume_loop() -> None:
-    bootstrap = os.environ.get("KAFKA_BOOTSTRAP_SERVERS", "localhost:9092")
-    topic = os.environ.get("KAFKA_TOPIC_LOGS", "payment-logs")
-    group = os.environ.get("KAFKA_GROUP_ID", "log-consumer-vector")
-    batch_size = int(os.environ.get("INGEST_BATCH_SIZE", "10"))
+    bootstrap = settings.kafka_bootstrap_servers
+    topic = settings.kafka_topic_logs
+    group = settings.kafka_group_id
+    batch_size = settings.ingest_batch_size
 
     consumer = AIOKafkaConsumer(
         topic,

@@ -1,0 +1,15 @@
+# Local config (chứa secret)
+.env
+*.env
+!*.env.example
+
+# Python
+__pycache__/
+*.py[cod]
+venv/
+.venv/
+*.egg-info/
+.eggs/
+
+# IDE
+.idea/

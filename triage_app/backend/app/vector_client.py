@@ -1,25 +1,22 @@
 """Query Vector DB (Qdrant) từ Triage BE."""
 from __future__ import annotations
 
-import os
 from typing import Any
 
 from qdrant_client import QdrantClient
 from qdrant_client.models import Filter, FieldCondition, MatchValue
 
-COLLECTION = os.environ.get("QDRANT_COLLECTION", "payment_logs")
+from .config import settings
 
 
 def get_client() -> QdrantClient:
-    host = os.environ.get("QDRANT_HOST", "localhost")
-    port = int(os.environ.get("QDRANT_PORT", "6333"))
-    return QdrantClient(host=host, port=port)
+    return QdrantClient(host=settings.qdrant_host, port=settings.qdrant_port)
 
 
 def _scroll_filter(client: QdrantClient, must: list) -> list[dict[str, Any]]:
     try:
         results, _ = client.scroll(
-            collection_name=COLLECTION,
+            collection_name=settings.qdrant_collection,
             scroll_filter=Filter(must=must) if must else None,
             limit=100,
             with_payload=True,

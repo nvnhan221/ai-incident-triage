@@ -8,7 +8,6 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-import os
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
@@ -65,8 +64,8 @@ def ingest_batch(body: list[dict]):
 
 @app.on_event("startup")
 async def start_kafka_consumer():
-    """Chạy Kafka consumer trong background nếu bật."""
-    if os.environ.get("KAFKA_ENABLED", "false").lower() in ("true", "1"):
+    """Chạy Kafka consumer trong background nếu bật (trong .env: KAFKA_ENABLED=true)."""
+    if settings.kafka_enabled:
         from .kafka_consumer import consume_loop
         asyncio.create_task(consume_loop())
         logger.info("Kafka consumer task started")

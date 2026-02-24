@@ -2,15 +2,11 @@
 from __future__ import annotations
 
 import json
-import os
 import re
 from typing import Any
 
+from .config import settings
 from .schemas import TriageResult
-
-# Optional: OpenAI
-OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY")
-OPENAI_MODEL = os.environ.get("OPENAI_MODEL", "gpt-4o-mini")
 
 
 def _build_context(logs: list[dict[str, Any]], log_snippet: str | None, error_message: str | None) -> str:
@@ -64,7 +60,7 @@ async def triage_with_llm(
     if not context.strip():
         return TriageResult(root_cause="Không có log nào để phân tích."), ""
 
-    if not OPENAI_API_KEY:
+    if not settings.openai_api_key:
         # Fallback: không gọi API, trả về tóm tắt đơn giản
         summary = _summarize_logs(logs)
         return TriageResult(
@@ -77,7 +73,7 @@ async def triage_with_llm(
 
     try:
         from openai import AsyncOpenAI
-        client = AsyncOpenAI(api_key=OPENAI_API_KEY)
+        client = AsyncOpenAI(api_key=settings.openai_api_key)
         prompt = f"""Bạn là chuyên gia triage incident hệ thống thanh toán. Dựa trên các log và thông tin dưới đây, đưa ra đánh giá ngắn gọn theo đúng JSON sau (chỉ trả về JSON, không giải thích thêm):
 
 {{
@@ -92,7 +88,7 @@ Dữ liệu:
 {context}
 """
         resp = await client.chat.completions.create(
-            model=OPENAI_MODEL,
+            model=settings.openai_model,
             messages=[{"role": "user", "content": prompt}],
             temperature=0.2,
         )
