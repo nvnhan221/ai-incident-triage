@@ -19,12 +19,14 @@ from .llm import triage_with_llm
 app = FastAPI(title="Triage API", version="0.1.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
 
-# Serve frontend static (optional): frontend/ or frontend/dist
+# Serve frontend static: ưu tiên Next.js export (out/) > dist/ > index.html
 _frontend = Path(__file__).resolve().parent.parent / "frontend"
-if (_frontend / "index.html").exists():
-    app.mount("/app", StaticFiles(directory=str(_frontend), html=True), name="static")
+if (_frontend / "out" / "index.html").exists():
+    app.mount("/app", StaticFiles(directory=str(_frontend / "out"), html=True), name="static")
 elif (_frontend / "dist" / "index.html").exists():
     app.mount("/app", StaticFiles(directory=str(_frontend / "dist"), html=True), name="static")
+elif (_frontend / "index.html").exists():
+    app.mount("/app", StaticFiles(directory=str(_frontend), html=True), name="static")
 
 
 def _to_log_hit(p: dict) -> LogHit:
@@ -49,7 +51,11 @@ def health():
 @app.get("/")
 def root():
     """Redirect to UI."""
-    if (_frontend / "index.html").exists():
+    if (
+        (_frontend / "out" / "index.html").exists()
+        or (_frontend / "dist" / "index.html").exists()
+        or (_frontend / "index.html").exists()
+    ):
         return RedirectResponse(url="/app/")
     return {"service": "Triage API", "docs": "/docs", "search": "POST /search", "triage": "POST /triage"}
 

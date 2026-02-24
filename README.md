@@ -59,12 +59,20 @@ Sau đó mở http://localhost:8000/app/ (hoặc http://localhost:8000/app/index
    cd log_consumer && pip install -r requirements.txt && python main.py
    ```
    Mặc định chạy tại http://localhost:8001. Ingest log qua POST http://localhost:8001/ingest hoặc /ingest/batch.
-3. Triage App:
-   ```bash
-   cd triage_app/backend && pip install -r requirements.txt && python main.py
-   ```
-   Mặc định http://localhost:8000. Mở http://localhost:8000/app/ để dùng form (cần copy thư mục `frontend` vào `triage_app/backend/../frontend`).
-4. Cấu hình: copy `.env.example` thành `.env` trong từng service và chỉnh nếu cần. Ví dụ Triage Backend: `cp triage_app/backend/.env.example triage_app/backend/.env`. Thêm `OPENAI_API_KEY` vào `.env` để bật AI triage.
+3. Triage App (Backend + Frontend):
+   - Backend:
+     ```bash
+     cd triage_app/backend && pip install -r requirements.txt && python main.py
+     ```
+     Mặc định http://localhost:8000.
+   - Frontend (Next.js) — chọn một trong hai:
+     - **Cách A — Build tĩnh, serve từ Backend:**  
+       `cd triage_app/frontend && npm install && npm run build`  
+       Sau đó chạy backend như trên; mở http://localhost:8000/app/ (Backend serve thư mục `frontend/out/`).
+     - **Cách B — Chạy dev riêng:**  
+       `cd triage_app/frontend && npm install && cp .env.local.example .env.local && npm run dev`  
+       Mở http://localhost:3000. Trong `.env.local` đặt `NEXT_PUBLIC_API_URL=http://localhost:8000` để gọi API.
+4. Cấu hình: copy `.env.example` thành `.env` trong từng service và chỉnh nếu cần. Thêm `OPENAI_API_KEY` vào `.env` của Backend để bật AI triage.
 
 ## Cấu trúc repo
 
@@ -91,8 +99,11 @@ Sau đó mở http://localhost:8000/app/ (hoặc http://localhost:8000/app/index
 │   │   │   └── llm.py
 │   │   ├── requirements.txt
 │   │   └── Dockerfile
-│   └── frontend/        # Form + gọi BE, hiển thị kết quả
-│       └── index.html
+│   └── frontend/        # Next.js (App Router + Tailwind)
+│       ├── app/         # layout, page
+│       ├── lib/        # api client
+│       ├── package.json
+│       └── out/        # (sau npm run build) — Backend serve /app từ đây
 ├── scripts/
 │   ├── ingest_sample_logs.py
 │   └── sample_logs_y20ki9r6.json
