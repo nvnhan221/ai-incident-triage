@@ -22,6 +22,41 @@ Trong `.env` của Triage Backend có thể thêm `OPENAI_API_KEY=sk-...` để 
 - Docker & Docker Compose (nếu chạy bằng Docker)
 - (Tùy chọn) OpenAI API key cho tính năng AI triage
 
+## Setup Python (venv) — cho 2 project backend
+
+Áp dụng cho **log_consumer** và **triage_app/backend**. Trong từng thư mục project, chạy:
+
+```bash
+# Tạo virtual environment
+python3 -m venv venv
+
+# Kích hoạt (macOS/Linux)
+source venv/bin/activate
+# Windows: venv\Scripts\activate
+
+# Cài dependency
+pip install --upgrade pip
+pip install -r requirements.txt
+```
+
+Ví dụ:
+
+```bash
+# Log Consumer
+cd log_consumer
+python3 -m venv venv
+source venv/bin/activate
+pip install --upgrade pip
+pip install -r requirements.txt
+
+# Triage Backend (terminal khác hoặc sau khi deactivate)
+cd triage_app/backend
+python3 -m venv venv
+source venv/bin/activate
+pip install --upgrade pip
+pip install -r requirements.txt
+```
+
 ## Chạy bằng Docker Compose
 
 ```bash
@@ -54,15 +89,19 @@ Sau đó mở http://localhost:8000/app/ (hoặc http://localhost:8000/app/index
 ## Chạy local (không Docker)
 
 1. Chạy Qdrant (Docker): `docker run -p 6333:6333 qdrant/qdrant`
-2. Log Consumer:
+2. Log Consumer (sau khi [setup venv](#setup-python-venv--cho-2-project-backend) trong `log_consumer/`):
    ```bash
-   cd log_consumer && pip install -r requirements.txt && python main.py
+   cd log_consumer
+   source venv/bin/activate
+   python main.py
    ```
-   Mặc định chạy tại http://localhost:8001. Ingest log qua POST http://localhost:8001/ingest hoặc /ingest/batch.
+   Mặc định http://localhost:8001. Ingest log qua POST http://localhost:8001/ingest hoặc /ingest/batch.
 3. Triage App (Backend + Frontend):
-   - Backend:
+   - Backend (sau khi setup venv trong `triage_app/backend/`):
      ```bash
-     cd triage_app/backend && pip install -r requirements.txt && python main.py
+     cd triage_app/backend
+     source venv/bin/activate
+     python main.py
      ```
      Mặc định http://localhost:8000.
    - Frontend (Next.js) — chọn một trong hai:
