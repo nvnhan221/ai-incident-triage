@@ -1,9 +1,11 @@
 """Ingest và query cơ bản với Qdrant."""
 from __future__ import annotations
 
+import uuid
 from typing import Any
 
 from qdrant_client import QdrantClient
+from qdrant_client.http.exceptions import UnexpectedResponse
 from qdrant_client.models import Distance, PointStruct, VectorParams
 
 from .config import settings
@@ -20,19 +22,32 @@ def ensure_collection(client: QdrantClient, vector_size: int = VECTOR_SIZE) -> N
     """Tạo collection nếu chưa có. Dùng vector size 1 (dummy) nếu chỉ filter metadata."""
     from qdrant_client.http import models as rest
     try:
-        client.get_collection(COLLECTION_NAME)
+        client.get_collection(settings.qdrant_collection)
     except Exception:
-        client.create_collection(
-            collection_name=settings.qdrant_collection,
-            vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE),
-            optimizers_config=rest.OptimizersConfigDiff(default_segment_number=1),
-        )
+        try:
+            client.create_collection(
+                collection_name=settings.qdrant_collection,
+                vectors_config=VectorParams(size=vector_size, distance=Distance.COSINE),
+                optimizers_config=rest.OptimizersConfigDiff(default_segment_number=1),
+            )
+        except UnexpectedResponse as e:
+            if e.status_code != 409:
+                raise
+        except Exception as e:
+            if "already exists" not in str(e).lower() and "409" not in str(e):
+                raise
+
+
+def _to_point_id(record_id: str):
+    """Qdrant chỉ chấp nhận point id là UUID hoặc unsigned int. Tạo UUID từ record_id (deterministic)."""
+    return uuid.uuid5(uuid.NAMESPACE_OID, record_id)
 
 
 def payload_to_point(norm: NormalizedLog, vector: list[float] | None = None) -> PointStruct:
     """Chuyển NormalizedLog thành PointStruct cho Qdrant."""
     if vector is None:
         vector = [0.0] * VECTOR_SIZE  # dummy vector
+    point_id = _to_point_id(norm.id)
     payload: dict[str, Any] = {
         "request_id": norm.request_id,
         "order_no": norm.order_no,
@@ -52,7 +67,7 @@ def payload_to_point(norm: NormalizedLog, vector: list[float] | None = None) -> 
     }
     if norm.amount is not None:
         payload["amount"] = norm.amount
-    return PointStruct(id=norm.id, vector=vector, payload=payload)
+    return PointStruct(id=str(point_id), vector=vector, payload=payload)
 
 
 def upsert_logs(client: QdrantClient, normalized: list[NormalizedLog]) -> None:
