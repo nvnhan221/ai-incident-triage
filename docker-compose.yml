@@ -16,11 +16,8 @@ services:
       dockerfile: Dockerfile
     ports:
       - "8001:8001"
-    environment:
-      - QDRANT_HOST=qdrant
-      - QDRANT_PORT=6333
-      - RABBITMQ_ENABLED=false
-      - HTTP_PORT=8001
+    env_file:
+      - ./log_consumer/.env
     depends_on:
       - qdrant
 
@@ -31,10 +28,8 @@ services:
       dockerfile: Dockerfile
     ports:
       - "8000:8000"
-    environment:
-      - QDRANT_HOST=qdrant
-      - QDRANT_PORT=6333
-      - TRIAGE_PORT=8000
+    env_file:
+      - ./triage_app/backend/.env
     depends_on:
       - qdrant
     volumes:
