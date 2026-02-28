@@ -1,6 +1,7 @@
 services:
   qdrant:
     image: qdrant/qdrant:latest
+    restart: unless-stopped
     ports:
       - "6333:6333"
     volumes:
@@ -9,6 +10,7 @@ services:
       - QDRANT__SERVICE__GRPC_PORT=6334
 
   log-consumer:
+    restart: unless-stopped
     build:
       context: ./log_consumer
       dockerfile: Dockerfile
@@ -23,6 +25,7 @@ services:
       - qdrant
 
   triage-app:
+    restart: unless-stopped
     build:
       context: ./triage_app/backend
       dockerfile: Dockerfile
