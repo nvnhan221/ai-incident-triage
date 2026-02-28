@@ -1,7 +1,7 @@
 """
 Log Consumer Service:
 - HTTP: POST /ingest nhận log (JSON), chuẩn hóa, ingest vào Vector DB (dùng test hoặc webhook).
-- Kafka: background task consume topic, chuẩn hóa, ingest.
+- RabbitMQ: background task consume queue INCIDENT_TRIAGE_LOGS, chuẩn hóa, ingest.
 """
 from __future__ import annotations
 
@@ -63,14 +63,14 @@ def ingest_batch(body: list[dict]):
 
 
 @app.on_event("startup")
-async def start_kafka_consumer():
-    """Chạy Kafka consumer trong background nếu bật (trong .env: KAFKA_ENABLED=true)."""
-    if settings.kafka_enabled:
-        from .kafka_consumer import consume_loop
+async def start_rabbitmq_consumer():
+    """Chạy RabbitMQ consumer trong background nếu bật (trong .env: RABBITMQ_ENABLED=true)."""
+    if settings.rabbitmq_enabled:
+        from .rabbitmq_consumer import consume_loop
         asyncio.create_task(consume_loop())
-        logger.info("Kafka consumer task started")
+        logger.info("RabbitMQ consumer task started")
     else:
-        logger.info("Kafka disabled; use POST /ingest or /ingest/batch to push logs")
+        logger.info("RabbitMQ disabled; use POST /ingest or /ingest/batch to push logs")
 
 
 if __name__ == "__main__":

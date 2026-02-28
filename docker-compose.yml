@@ -17,7 +17,7 @@ services:
     environment:
       - QDRANT_HOST=qdrant
       - QDRANT_PORT=6333
-      - KAFKA_ENABLED=false
+      - RABBITMQ_ENABLED=false
       - HTTP_PORT=8001
     depends_on:
       - qdrant

@@ -16,7 +16,7 @@ Khi thực hiện giao dịch, mỗi service ghi log với các trường:
 - **responseCode**
 - **data** (payload tương ứng)
 
-Các log này được **ghi nhận vào Kafka** (topic log hoặc per-service topics).
+Các log này được **ghi nhận vào RabbitMQ** (queue INCIDENT_TRIAGE_LOGS) hoặc Kafka tùy hạ tầng.
 
 ---
 
@@ -26,13 +26,13 @@ Hệ thống gồm **2 phần**:
 
 ### 2.1 Log Consumer Service (Ingest pipeline)
 
-**Vai trò:** Consume log messages từ Kafka → xử lý → ingest vào Vector DB.
+**Vai trò:** Consume log messages từ RabbitMQ (queue INCIDENT_TRIAGE_LOGS) → xử lý → ingest vào Vector DB.
 
 ```
-Kafka (log topics)  ──▶  Consumer Service  ──▶  Vector DB
+RabbitMQ (INCIDENT_TRIAGE_LOGS)  ──▶  Consumer Service  ──▶  Vector DB
 ```
 
-- **Input:** Messages từ Kafka (log từ payment-service, order-service, merchant-service, …).
+- **Input:** Messages từ RabbitMQ (log từ payment-service, order-service, merchant-service, …).
 - **Xử lý:** Parse log, chuẩn hóa (requestId, transactionId, responseCode, service name, data), tạo embedding nếu cần.
 - **Output:** Ghi vào Vector DB (document + vector để search sau).
 
@@ -58,23 +58,23 @@ User  ──▶  UI (FE)  ──▶  Backend (BE)  ──┬──▶  Vector DB
 
 ```mermaid
 flowchart TB
-    subgraph sources["Các service hiện có (ghi log vào Kafka)"]
+    subgraph sources["Các service hiện có (ghi log)"]
         payment["payment-service"]
         order["order-service"]
         merchant["merchant-service"]
         other["..."]
     end
 
-    Kafka["Kafka\n(log topics)"]
-    sources -->|"requestId, transactionId, responseCode, data"| Kafka
+    RMQ["RabbitMQ\n(INCIDENT_TRIAGE_LOGS)"]
+    sources -->|"requestId, transactionId, responseCode, data"| RMQ
 
     subgraph consumer["Service 1: Log Consumer"]
-        c1["Consume messages từ Kafka"]
+        c1["Consume từ RabbitMQ"]
         c2["Xử lý / chuẩn hóa log"]
         c3["Ingest vào Vector DB"]
         c1 --> c2 --> c3
     end
-    Kafka --> consumer
+    RMQ --> consumer
 
     VDB[("Vector DB\n(logs + vector)")]
     consumer --> VDB
@@ -93,20 +93,20 @@ flowchart TB
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────┐
-│  Các service hiện có (ghi log vào Kafka)                                  │
+│  Các service hiện có (ghi log)                                             │
 │  payment-service │ order-service │ merchant-service │ ...                │
 └───────────────────────────────┬─────────────────────────────────────────┘
                                 │ logs (requestId, transactionId, responseCode, data)
                                 ▼
                         ┌───────────────┐
-                        │    Kafka      │
-                        │  (log topics) │
+                        │  RabbitMQ     │
+                        │ INCIDENT_...  │
                         └───────┬───────┘
                                 │
                                 ▼
 ┌───────────────────────────────────────────────────────────────────────────┐
 │  Service 1: Log Consumer                                                   │
-│  - Consume messages từ Kafka                                              │
+│  - Consume từ RabbitMQ (INCIDENT_TRIAGE_LOGS)                              │
 │  - Xử lý / chuẩn hóa log                                                  │
 │  - Ingest vào Vector DB                                                   │
 └───────────────────────────────┬───────────────────────────────────────────┘
@@ -135,10 +135,10 @@ flowchart TB
 
 ## 4. Luồng dữ liệu chi tiết
 
-### 4.1 Luồng Ingest (Kafka → Vector DB)
+### 4.1 Luồng Ingest (RabbitMQ → Vector DB)
 
-1. Các service ghi log (requestId, transactionId, responseCode, data) → produce vào Kafka.
-2. **Log Consumer** subscribe topic(s), consume message.
+1. Các service ghi log (requestId, transactionId, responseCode, data) → gửi vào RabbitMQ queue INCIDENT_TRIAGE_LOGS.
+2. **Log Consumer** consume từ queue, xử lý từng message (auto_ack=false, ack sau khi ingest thành công).
 3. Parse message (JSON), chuẩn hóa schema (service name, timestamp, transactionId, …).
 4. (Tùy chọn) Tạo embedding cho nội dung log (để semantic search).
 5. Insert/upsert vào Vector DB (metadata + vector).
@@ -159,7 +159,7 @@ flowchart TB
 
 | Thành phần | Công nghệ |
 |------------|-----------|
-| **Log Consumer** | Python/Node; Kafka client (confluent-kafka / kafka-python); Vector DB client (Qdrant, Weaviate, pgvector, …) |
+| **Log Consumer** | Python; aio-pika (RabbitMQ); Vector DB client (Qdrant, Weaviate, pgvector, …) |
 | **Vector DB** | Qdrant / Weaviate / Chroma / pgvector (chọn 1) |
 | **Triage Backend** | Python + FastAPI (hoặc Node + Express); SDK Vector DB; OpenAI/Claude SDK |
 | **Triage Frontend** | React / Next.js / Vue (hoặc đơn giản: HTML + JS, hoặc Streamlit nếu chỉ cần nội bộ) |
@@ -168,6 +168,6 @@ flowchart TB
 
 ## 6. Tóm tắt
 
-- **Một consumer:** Kafka → xử lý log → ingest Vector DB.
+- **Một consumer:** RabbitMQ (queue INCIDENT_TRIAGE_LOGS) → xử lý log → ingest Vector DB.
 - **Một app (FE + BE):** UI input → BE query Vector DB + gọi AI → trả kết quả cho user.
-- **Không cần** fetch log từ Elasticsearch/Loki trong bước triage — dữ liệu đã nằm trong Vector DB do consumer ingest từ Kafka.
+- **Không cần** fetch log từ Elasticsearch/Loki trong bước triage — dữ liệu đã nằm trong Vector DB do consumer ingest từ RabbitMQ.

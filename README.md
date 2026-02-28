@@ -2,7 +2,7 @@
 
 Hệ thống gồm 2 phần:
 
-1. **Log Consumer** — Nhận log (Kafka hoặc HTTP), chuẩn hóa, ingest vào Vector DB (Qdrant).
+1. **Log Consumer** — Nhận log (RabbitMQ queue INCIDENT_TRIAGE_LOGS hoặc HTTP), chuẩn hóa, ingest vào Vector DB (Qdrant).
 2. **Triage App** — FE + BE: form nhập mã đơn/merchant → query Vector DB + gọi AI → hiển thị kết quả.
 
 ## Cấu hình (.env)

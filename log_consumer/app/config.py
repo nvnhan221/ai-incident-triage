@@ -2,10 +2,15 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    kafka_enabled: bool = False
-    kafka_bootstrap_servers: str = "localhost:9092"
-    kafka_topic_logs: str = "payment-logs"
-    kafka_group_id: str = "log-consumer-vector"
+    # RabbitMQ [rabbit-mq-log-consumer]
+    rabbitmq_enabled: bool = False
+    rabbitmq_host: str = "localhost"
+    rabbitmq_port: int = 5672
+    rabbitmq_username: str = "guest"
+    rabbitmq_password: str = "guest"
+    rabbitmq_queue_name: str = "INCIDENT_TRIAGE_LOGS"
+    rabbitmq_prefetch_count: int = 20
+
     ingest_batch_size: int = 10
     qdrant_host: str = "localhost"
     qdrant_port: int = 6333

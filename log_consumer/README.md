@@ -1,6 +1,6 @@
 # Log Consumer
 
-Consume log từ Kafka (hoặc HTTP), chuẩn hóa, ingest vào Vector DB (Qdrant).
+Consume log từ RabbitMQ (queue INCIDENT_TRIAGE_LOGS) hoặc HTTP (POST /ingest), chuẩn hóa, ingest vào Vector DB (Qdrant).
 
 ## Setup (venv)
 
@@ -16,7 +16,7 @@ pip install -r requirements.txt
 
 ## Cấu hình
 
-Copy `.env.example` → `.env`, chỉnh nếu cần (QDRANT_HOST, KAFKA_*).
+Copy `.env.example` → `.env`, chỉnh nếu cần (QDRANT_HOST, RABBITMQ_*). Bật consumer: `RABBITMQ_ENABLED=true`.
 
 ## Chạy
 
